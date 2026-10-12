@@ -15,27 +15,75 @@ const GLM_API_KEY = process.env.GLM_API_KEY || '';
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const DATA_FILE = path.join(__dirname, 'data.json');
 
-// ---------- 存储：有 DATABASE_URL 用云端 Postgres（部署用），否则用本地 data.json ----------
+// ---------- 存储（三选一）：DATABASE_URL → Postgres；GITHUB_TOKEN+GITHUB_REPO → GitHub仓库；否则本地 data.json ----------
 const DATABASE_URL = process.env.DATABASE_URL || '';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+const GITHUB_REPO = process.env.GITHUB_REPO || '';
+const useGithub = Boolean(GITHUB_TOKEN && GITHUB_REPO && !DATABASE_URL);
 let db = { profile: null, logs: [], weights: [], workouts: [] };
 let pgClient = null;
+let ghSha = null;
+let ghSaving = false;
 let saveTimer = null;
 
+async function ghApi(method, body) {
+  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/data.json`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'fatloss-coach',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(15000),
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error('GitHub API ' + res.status + ': ' + (await res.text()).slice(0, 200));
+  return res.json();
+}
+
+async function ghSave() {
+  if (ghSaving) { save(); return; }
+  ghSaving = true;
+  const content = Buffer.from(JSON.stringify(db), 'utf8').toString('base64');
+  try {
+    const r = await ghApi('PUT', { message: 'update data', content, ...(ghSha ? { sha: ghSha } : {}) });
+    ghSha = r.content.sha;
+  } catch (e) {
+    const cur = await ghApi('GET');
+    ghSha = cur ? cur.sha : null;
+    const r = await ghApi('PUT', { message: 'update data', content, ...(ghSha ? { sha: ghSha } : {}) });
+    ghSha = r.content.sha;
+  } finally {
+    ghSaving = false;
+  }
+}
+
 async function initStore() {
-  if (!DATABASE_URL) {
-    if (fs.existsSync(DATA_FILE)) {
-      try { Object.assign(db, JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))); } catch {}
-    }
-    console.log('存储模式：本地文件 data.json');
+  if (DATABASE_URL) {
+    const { Client } = require('pg');
+    pgClient = new Client({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    await pgClient.connect();
+    await pgClient.query('CREATE TABLE IF NOT EXISTS store (id integer PRIMARY KEY, data jsonb NOT NULL)');
+    const r = await pgClient.query('SELECT data FROM store WHERE id = 1');
+    if (r.rows.length) Object.assign(db, r.rows[0].data);
+    console.log('存储模式：PostgreSQL 云端数据库');
     return;
   }
-  const { Client } = require('pg');
-  pgClient = new Client({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
-  await pgClient.connect();
-  await pgClient.query('CREATE TABLE IF NOT EXISTS store (id integer PRIMARY KEY, data jsonb NOT NULL)');
-  const r = await pgClient.query('SELECT data FROM store WHERE id = 1');
-  if (r.rows.length) Object.assign(db, r.rows[0].data);
-  console.log('存储模式：PostgreSQL 云端数据库');
+  if (useGithub) {
+    const r = await ghApi('GET');
+    if (r) {
+      ghSha = r.sha;
+      Object.assign(db, JSON.parse(Buffer.from(r.content, 'base64').toString('utf8')));
+    }
+    console.log('存储模式：GitHub 仓库 ' + GITHUB_REPO);
+    return;
+  }
+  if (fs.existsSync(DATA_FILE)) {
+    try { Object.assign(db, JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'))); } catch {}
+  }
+  console.log('存储模式：本地文件 data.json');
 }
 
 function save() {
@@ -46,10 +94,12 @@ function save() {
         'INSERT INTO store (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO UPDATE SET data = $1::jsonb',
         [JSON.stringify(db)]
       ).catch(e => console.error('保存失败:', e.message));
+    } else if (useGithub) {
+      ghSave().catch(e => console.error('保存失败:', e.message));
     } else {
       fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
     }
-  }, 200);
+  }, 500);
 }
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
