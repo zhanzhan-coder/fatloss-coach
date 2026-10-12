@@ -1,0 +1,11 @@
+{
+  "name": "减脂教练",
+  "short_name": "减脂教练",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#fff7f3",
+  "theme_color": "#ff7a59",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#ff7a59">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="减脂教练">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>减脂教练</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 密码门 -->
+<div class="overlay" id="auth-screen" hidden>
+  <div class="card auth-card">
+    <h2>🔒 输入访问密码</h2>
+    <input type="password" id="auth-input" placeholder="密码" autocomplete="current-password">
+    <button class="btn primary" id="auth-btn">进入</button>
+    <p class="muted" id="auth-error"></p>
+  </div>
+</div>
+
+<!-- 首次使用：填资料 -->
+<div class="overlay" id="onboard-screen" hidden>
+  <div class="card">
+    <h2>先认识一下 🙌</h2>
+    <p class="muted">用于计算你的每日热量预算</p>
+    <label>昵称（可不填）<input id="ob-name" placeholder="怎么称呼你"></label>
+    <label>身高 (cm)<input id="ob-height" type="number" inputmode="decimal" placeholder="160"></label>
+    <label>当前体重 (斤)<input id="ob-weight" type="number" inputmode="decimal" placeholder="148"></label>
+    <label>目标体重 (斤)<input id="ob-goal" type="number" inputmode="decimal" placeholder="110"></label>
+    <label>年龄<input id="ob-age" type="number" inputmode="numeric" placeholder="20"></label>
+    <button class="btn primary" id="ob-save">开始减脂之旅</button>
+    <p class="muted" id="ob-error"></p>
+  </div>
+</div>
+
+<header id="topbar">
+  <div>
+    <h1 id="greeting">减脂教练</h1>
+    <span class="muted" id="date-label"></span>
+  </div>
+  <div id="ontrack-badge"></div>
+</header>
+
+<main>
+  <!-- 今日 -->
+  <section class="tab active" id="tab-today">
+    <div class="card ring-card">
+      <div class="ring-wrap" id="kcal-ring"></div>
+      <div class="ring-side" id="today-summary"></div>
+    </div>
+    <div id="meals"></div>
+    <div class="row gap">
+      <button class="btn ghost" id="manual-add-btn">✏️ 手动记一笔</button>
+      <button class="btn ghost" id="coach-quick-btn">🧑‍🏫 今日点评</button>
+    </div>
+  </section>
+
+  <!-- 运动 -->
+  <section class="tab" id="tab-workout">
+    <div class="card" id="week-progress"></div>
+    <div class="card" id="week-plan"></div>
+    <div id="workout-list"></div>
+    <button class="btn primary wide" id="add-workout-btn">＋ 记录运动</button>
+  </section>
+
+  <!-- 体重 -->
+  <section class="tab" id="tab-weight">
+    <div class="card" id="milestone-card"></div>
+    <div class="card">
+      <canvas id="weight-chart" height="220"></canvas>
+      <p class="muted center">虚线是计划目标，实线是你的实际体重</p>
+    </div>
+    <div class="row gap">
+      <input id="weight-input" type="number" inputmode="decimal" placeholder="空腹体重(斤)" step="0.1">
+      <input id="weight-date" type="date" style="flex:0.8" title="称重日期，默认今天，可补记">
+      <button class="btn primary" id="weight-save" style="flex:0.6">记录</button>
+    </div>
+    <div id="weight-history"></div>
+  </section>
+
+  <!-- 教练 -->
+  <section class="tab" id="tab-coach">
+    <div id="chat-box"></div>
+    <div class="row gap chat-input-row">
+      <input id="chat-input" placeholder="问教练点什么…（如：晚上饿了能吃啥）">
+      <button class="btn primary" id="chat-send">发送</button>
+    </div>
+  </section>
+
+  <!-- 我的 -->
+  <section class="tab" id="tab-me">
+    <div class="card" id="profile-card"></div>
+    <div class="card" id="budget-card"></div>
+    <button class="btn ghost wide" id="export-btn">📦 导出我的数据</button>
+    <p class="muted center small" id="ai-status"></p>
+  </section>
+</main>
+
+<!-- 拍照按钮 -->
+<button id="fab" title="拍照记饮食">📷</button>
+<input type="file" id="photo-input" accept="image/*" hidden>
+
+<nav id="tabbar">
+  <button data-tab="today" class="active">🍚<span>今日</span></button>
+  <button data-tab="workout">🏃<span>运动</span></button>
+  <button data-tab="weight">⚖️<span>体重</span></button>
+  <button data-tab="coach">🧑‍🏫<span>教练</span></button>
+  <button data-tab="me">👤<span>我的</span></button>
+</nav>
+
+<!-- 识别结果编辑 -->
+<div class="overlay" id="photo-modal" hidden>
+  <div class="card modal-card">
+    <h3>这一餐吃了什么</h3>
+    <img id="photo-preview" alt="食物照片">
+    <div id="photo-status" class="muted center">AI识别中…</div>
+    <div id="photo-result" hidden>
+      <select id="photo-meal">
+        <option value="breakfast">早餐</option>
+        <option value="lunch">午餐</option>
+        <option value="dinner">晚餐</option>
+        <option value="snack">加餐</option>
+      </select>
+      <div id="photo-items"></div>
+      <p class="coach-comment" id="photo-comment"></p>
+      <div class="row gap">
+        <button class="btn ghost" id="photo-cancel">取消</button>
+        <button class="btn primary" id="photo-save">保存记录</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 手动记饮食 -->
+<div class="overlay" id="manual-modal" hidden>
+  <div class="card modal-card">
+    <h3>手动记一笔</h3>
+    <select id="manual-meal">
+      <option value="breakfast">早餐</option>
+      <option value="lunch">午餐</option>
+      <option value="dinner">晚餐</option>
+      <option value="snack">加餐</option>
+    </select>
+    <input id="manual-name" placeholder="吃了什么（如：鸡胸肉沙拉）">
+    <input id="manual-kcal" type="number" inputmode="numeric" placeholder="大概热量 kcal（不知道就留空按300算）">
+    <div class="row gap">
+      <button class="btn ghost" id="manual-cancel">取消</button>
+      <button class="btn primary" id="manual-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 记运动 -->
+<div class="overlay" id="workout-modal" hidden>
+  <div class="card modal-card">
+    <h3>记录运动</h3>
+    <select id="wo-type">
+      <option>跑步</option><option>跳绳</option><option>快走</option><option>游泳</option>
+      <option>骑车</option><option>跳操/HIIT</option><option>羽毛球</option>
+      <option>力量训练</option><option>瑜伽</option><option>其他</option>
+    </select>
+    <input id="wo-minutes" type="number" inputmode="numeric" placeholder="时长（分钟）">
+    <p class="muted center small">— 或者只记步数 —</p>
+    <input id="wo-steps" type="number" inputmode="numeric" placeholder="今天走了多少步（选填）">
+    <div class="row gap">
+      <button class="btn ghost" id="wo-cancel">取消</button>
+      <button class="btn primary" id="wo-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
